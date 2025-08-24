@@ -1,0 +1,98 @@
+body {
+  margin: 0;
+  font-family: 'Segoe UI', sans-serif;
+}
+
+.container {
+  display: flex;
+  min-height: 100vh;
+}
+
+.sidebar {
+  width: 200px;
+  background: #111;
+  padding: 20px;
+}
+
+.sidebar nav a {
+  color: white;
+  text-decoration: none;
+  display: block;
+  margin: 15px 0;
+  font-weight: bold;
+}
+
+.sidebar nav a:hover {
+  color: #00e0ff;
+}
+
+.main-content {
+  flex: 1;
+  background: linear-gradient(to bottom right, #2e2e2e, #5f5f5f); /* modern dark gradient */
+  background-size: cover;
+  background-position: center;
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 40px;
+}
+
+.intro-box {
+  background-color: rgba(0, 0, 0, 0.7);
+  padding: 40px;
+  border-radius: 12px;
+  max-width: 800px;
+  box-shadow: 0 10px 30px rgba(0, 224, 255, 0.1);
+  text-align: center;
+}
+
+.intro-box h1 {
+  font-size: 32px;
+  margin-bottom: 25px;
+  color: #00e0ff;
+}
+
+/* ✅ Modern project list style (NO bullet points) */
+.intro-box ul {
+  list-style: none; /* Remove bullets */
+  padding: 0;
+  margin: 0 auto;
+  text-align: left;
+  max-width: 600px;
+}
+
+.intro-box ul li {
+  background-color: rgba(255, 255, 255, 0.05);
+  margin-bottom: 12px;
+  padding: 12px 20px;
+  border-radius: 8px;
+  font-size: 17px;
+  color: #f0f0f0;
+  box-shadow: 0 2px 8px rgba(0, 224, 255, 0.1);
+  transition: transform 0.3s ease, box-shadow 0.3s ease;
+  position: relative;
+}
+
+/* Add rocket icon before each item */
+.intro-box ul li::before {
+  content: "🚀";
+  margin-right: 10px;
+  font-size: 18px;
+  position: relative;
+  top: 1px;
+}
+
+/* Hover effect */
+.intro-box ul li:hover {
+  transform: translateX(6px);
+  box-shadow: 0 4px 15px rgba(0, 224, 255, 0.3);
+  background-color: rgba(255, 255, 255, 0.08);
+}
+
+/* Paragraph under the list */
+.intro-box p {
+  font-size: 16px;
+  margin-top: 25px;
+  color: #cccccc;
+}
