@@ -12,6 +12,8 @@ import {
 import Papa from "papaparse";
 import { supabase } from "../services/supabaseClient";
 
+const WEBHOOK_URL = "https://your-webhook-url.com/webhook/bulk"; // optional
+
 export default function BulkUpload() {
   const fileInputRef = useRef(null);
 
@@ -20,29 +22,21 @@ export default function BulkUpload() {
   const [success, setSuccess] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
   const [dragActive, setDragActive] = useState(false);
+  const [summary, setSummary] = useState(null);
 
-  // ===============================
-  // File Select
-  // ===============================
   const handleFileSelect = (e) => {
     const selectedFile = e.target.files[0];
-
     if (!selectedFile?.name.toLowerCase().endsWith(".csv")) {
       setErrorMsg("Please upload a valid CSV file.");
       return;
     }
-
     setFile(selectedFile);
     setErrorMsg("");
   };
 
-  // ===============================
-  // Drag Events
-  // ===============================
   const handleDrop = (e) => {
     e.preventDefault();
     setDragActive(false);
-
     const droppedFile = e.dataTransfer.files[0];
 
     if (!droppedFile?.name.toLowerCase().endsWith(".csv")) {
@@ -54,6 +48,21 @@ export default function BulkUpload() {
     setErrorMsg("");
   };
 
+  // 🔥 Generate Starting Employee ID
+  const generateEmployeeId = async () => {
+    const { data } = await supabase
+      .from("employees")
+      .select("employee_id")
+      .order("created_at", { ascending: false })
+      .limit(1);
+
+    if (!data || data.length === 0) return "EMP001";
+
+    const last = data[0].employee_id;
+    const num = parseInt(last.replace("EMP", ""));
+    return `EMP${(num + 1).toString().padStart(3, "0")}`;
+  };
+
   const handleUpload = async () => {
     if (!file) {
       setErrorMsg("Please select a CSV file first.");
@@ -62,121 +71,107 @@ export default function BulkUpload() {
 
     setLoading(true);
     setErrorMsg("");
+    setSummary(null);
 
     Papa.parse(file, {
       header: true,
       skipEmptyLines: true,
       complete: async (results) => {
+        let inserted = 0;
+        let failed = 0;
+
         try {
-          const rows = results.data;
-
-          if (!rows.length) {
-            setErrorMsg("CSV file is empty.");
-            setLoading(false);
-            return;
-          }
-
-          // Required Columns Validation
-          const requiredColumns = [
-            "first_name",
-            "last_name",
-            "personal_email",
-            "manager_email",
-            "job_role",
-            "department",
-          ];
-
-          const fileColumns = Object.keys(rows[0]);
-
-          const missingColumns = requiredColumns.filter(
-            (col) => !fileColumns.includes(col)
+          // ✅ Generate starting employee ID once
+          let currentEmployeeId = await generateEmployeeId();
+          let currentNumber = parseInt(
+            currentEmployeeId.replace("EMP", "")
           );
 
-          if (missingColumns.length > 0) {
-            setErrorMsg(
-              `Missing required columns: ${missingColumns.join(", ")}`
-            );
-            setLoading(false);
-            return;
-          }
+          for (const row of results.data) {
+            try {
+              if (!row.personal_email) {
+                failed++;
+                continue;
+              }
 
-          // Get last employee number
-          const { data: lastEmp } = await supabase
-            .from("employees")
-            .select("employee_id")
-            .order("created_at", { ascending: false })
-            .limit(1);
+              // 🔎 Check duplicate email
+              const { data: existing } = await supabase
+                .from("employees")
+                .select("id")
+                .eq("personal_email", row.personal_email);
 
-          let nextNumber = 1;
+              if (existing.length > 0) {
+                failed++;
+                continue;
+              }
 
-          if (lastEmp?.length) {
-            nextNumber =
-              parseInt(lastEmp[0].employee_id.replace("EMP", "")) + 1;
-          }
+              // ✅ Generate sequential employee_id
+              const newEmployeeId = `EMP${currentNumber
+                .toString()
+                .padStart(3, "0")}`;
+              currentNumber++;
 
-          let successCount = 0;
+              // ✅ Insert into employees
+              const { error: empError } = await supabase
+                .from("employees")
+                .insert([
+                  {
+                    employee_id: newEmployeeId,
+                    first_name: row.first_name,
+                    last_name: row.last_name,
+                    personal_email: row.personal_email,
+                    manager_email: row.manager_email,
+                    job_role: row.job_role,
+                    department: row.department,
+                    status: "pending",
+                  },
+                ]);
 
-          for (const row of rows) {
-            if (!row.personal_email) continue;
+              if (empError) {
+                console.error(empError);
+                failed++;
+                continue;
+              }
 
-            const empId = `EMP${nextNumber
-              .toString()
-              .padStart(3, "0")}`;
-
-            nextNumber++;
-
-            // Check duplicate email
-            const { data: existing } = await supabase
-              .from("employees")
-              .select("id")
-              .eq("personal_email", row.personal_email);
-
-            if (existing.length > 0) continue;
-
-            // Insert employee
-            const { error: empError } = await supabase
-              .from("employees")
-              .insert([
+              // ✅ Insert into provisioning_requests
+              await supabase.from("provisioning_requests").insert([
                 {
-                  employee_id: empId,
-                  first_name: row.first_name,
-                  last_name: row.last_name,
-                  personal_email: row.personal_email,
-                  manager_email: row.manager_email,
-                  job_role: row.job_role,
-                  department: row.department,
+                  employee_id: newEmployeeId,
+                  request_type: "onboarding",
+                  target_role: row.job_role,
                   status: "pending",
+                  requested_by: "bulk.upload@system.com",
                 },
               ]);
 
-            if (empError) {
-              console.error(empError);
-              continue;
+              inserted++;
+            } catch (innerErr) {
+              console.error(innerErr);
+              failed++;
             }
-
-            // Insert provisioning request
-            await supabase.from("provisioning_requests").insert([
-              {
-                employee_id: empId,
-                request_type: "onboarding",
-                target_role: row.job_role,
-                status: "pending",
-                requested_by: "bulk_upload@company.com",
-              },
-            ]);
-
-            successCount++;
           }
 
-          if (successCount === 0) {
-            setErrorMsg("No new records inserted (maybe duplicates).");
-          } else {
+          setSummary({ inserted, failed });
+
+          if (inserted > 0) {
             setSuccess(true);
             setFile(null);
           }
+
+          // 🔥 Optional webhook
+          if (inserted > 0 && WEBHOOK_URL !== "") {
+            await fetch(WEBHOOK_URL, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                message: "Bulk upload completed",
+                inserted,
+              }),
+            });
+          }
         } catch (err) {
           console.error(err);
-          setErrorMsg("Upload failed. Please check data format.");
+          setErrorMsg("Bulk upload failed.");
         }
 
         setLoading(false);
@@ -214,7 +209,6 @@ export default function BulkUpload() {
             textAlign: "center",
             cursor: "pointer",
             background: dragActive ? "#eef2ff" : "#f8fafc",
-            transition: "0.3s",
           }}
         >
           {file ? (
@@ -237,6 +231,12 @@ export default function BulkUpload() {
           {loading ? <CircularProgress size={20} /> : "Upload"}
         </Button>
 
+        {summary && (
+          <Alert severity="info" sx={{ mt: 3 }}>
+            Inserted: {summary.inserted} | Failed: {summary.failed}
+          </Alert>
+        )}
+
         {errorMsg && (
           <Alert severity="error" sx={{ mt: 3 }}>
             {errorMsg}
@@ -250,7 +250,7 @@ export default function BulkUpload() {
         onClose={() => setSuccess(false)}
       >
         <Alert severity="success" variant="filled">
-          Bulk Upload Successful 🚀
+          Bulk Upload Completed Successfully 🚀
         </Alert>
       </Snackbar>
     </Card>
